@@ -27,13 +27,16 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.cloud.sleuth.Span;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.BaggageExecutor;
+import org.springframework.cloud.sleuth.baggage.BaggageThreadPoolTaskExecutor;
 import org.springframework.cloud.sleuth.util.SpanNameUtil;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.ReflectionUtils;
 
 /**
- * Aspect that creates a new Span for running threads executing methods annotated with
- * {@link org.springframework.scheduling.annotation.Async} annotation.
+ * Aspect that creates a new Span for running threads executing methods
+ * annotated with {@link org.springframework.scheduling.annotation.Async}
+ * annotation.
  *
  * @author Marcin Grzejszczak
  * @since 1.0.0
@@ -57,13 +60,12 @@ public class TraceAsyncAspect {
 
 	@Around("execution (@org.springframework.scheduling.annotation.Async  * *.*(..))")
 	public Object traceBackgroundThread(final ProceedingJoinPoint pjp) throws Throwable {
-		Span span = this.tracer.createSpan(
-				SpanNameUtil.toLowerHyphen(pjp.getSignature().getName()));
+		Span span = this.tracer.createSpan(SpanNameUtil.toLowerHyphen(pjp.getSignature().getName()));
 		this.tracer.addTag(Span.SPAN_LOCAL_COMPONENT_TAG_NAME, ASYNC_COMPONENT);
-		this.tracer.addTag(this.traceKeys.getAsync().getPrefix() +
-				this.traceKeys.getAsync().getClassNameKey(), pjp.getTarget().getClass().getSimpleName());
-		this.tracer.addTag(this.traceKeys.getAsync().getPrefix() +
-				this.traceKeys.getAsync().getMethodNameKey(), pjp.getSignature().getName());
+		this.tracer.addTag(this.traceKeys.getAsync().getPrefix() + this.traceKeys.getAsync().getClassNameKey(),
+				pjp.getTarget().getClass().getSimpleName());
+		this.tracer.addTag(this.traceKeys.getAsync().getPrefix() + this.traceKeys.getAsync().getMethodNameKey(),
+				pjp.getSignature().getName());
 		try {
 			return pjp.proceed();
 		} finally {
@@ -73,8 +75,8 @@ public class TraceAsyncAspect {
 
 	@Around("execution (* org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor.*(..))")
 	public Object traceThreadPoolTaskExecutor(final ProceedingJoinPoint pjp) throws Throwable {
-		LazyTraceThreadPoolTaskExecutor executor = new LazyTraceThreadPoolTaskExecutor(this.beanFactory,
-				(ThreadPoolTaskExecutor) pjp.getTarget());
+		BaggageThreadPoolTaskExecutor executor = new BaggageThreadPoolTaskExecutor(
+				new LazyTraceThreadPoolTaskExecutor(this.beanFactory, (ThreadPoolTaskExecutor) pjp.getTarget()));
 		Method methodOnTracedBean = getMethod(pjp, executor);
 		if (methodOnTracedBean != null) {
 			return methodOnTracedBean.invoke(executor, pjp.getArgs());
@@ -84,8 +86,8 @@ public class TraceAsyncAspect {
 
 	@Around("execution (* java.util.concurrent.Executor.*(..))")
 	public Object traceExecutor(final ProceedingJoinPoint pjp) throws Throwable {
-		LazyTraceExecutor executor = new LazyTraceExecutor(this.beanFactory,
-				(Executor) pjp.getTarget());
+		BaggageExecutor executor = new BaggageExecutor(
+				new LazyTraceExecutor(this.beanFactory, (Executor) pjp.getTarget()));
 		Method methodOnTracedBean = getMethod(pjp, executor);
 		if (methodOnTracedBean != null) {
 			return methodOnTracedBean.invoke(executor, pjp.getArgs());
@@ -96,8 +98,7 @@ public class TraceAsyncAspect {
 	private Method getMethod(ProceedingJoinPoint pjp, Object object) {
 		MethodSignature signature = (MethodSignature) pjp.getSignature();
 		Method method = signature.getMethod();
-		return ReflectionUtils
-				.findMethod(object.getClass(), method.getName(), method.getParameterTypes());
+		return ReflectionUtils.findMethod(object.getClass(), method.getName(), method.getParameterTypes());
 	}
 
 }

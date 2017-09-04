@@ -20,6 +20,7 @@ import java.util.concurrent.Executor;
 
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.cloud.sleuth.baggage.BaggageExecutor;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.AsyncConfigurerSupport;
 
@@ -42,7 +43,7 @@ public class LazyTraceAsyncCustomizer extends AsyncConfigurerSupport {
 
 	@Override
 	public Executor getAsyncExecutor() {
-		return new LazyTraceExecutor(this.beanFactory, this.delegate.getAsyncExecutor());
+		return new BaggageExecutor(new LazyTraceExecutor(this.beanFactory, this.delegate.getAsyncExecutor()));
 	}
 
 	@Override
