@@ -19,18 +19,19 @@ package org.springframework.cloud.sleuth.instrument.hystrix;
 import java.lang.invoke.MethodHandles;
 import java.util.concurrent.Callable;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.springframework.cloud.sleuth.Span;
+import org.springframework.cloud.sleuth.TraceKeys;
+import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.BaggageCallable;
+
 import com.netflix.hystrix.strategy.HystrixPlugins;
 import com.netflix.hystrix.strategy.concurrency.HystrixConcurrencyStrategy;
 import com.netflix.hystrix.strategy.eventnotifier.HystrixEventNotifier;
 import com.netflix.hystrix.strategy.executionhook.HystrixCommandExecutionHook;
 import com.netflix.hystrix.strategy.metrics.HystrixMetricsPublisher;
 import com.netflix.hystrix.strategy.properties.HystrixPropertiesStrategy;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.springframework.cloud.sleuth.Span;
-import org.springframework.cloud.sleuth.TraceKeys;
-import org.springframework.cloud.sleuth.Tracer;
 
 /**
  * A {@link HystrixConcurrencyStrategy} that wraps a {@link Callable} in a
@@ -96,6 +97,13 @@ public class SleuthHystrixConcurrencyStrategy extends HystrixConcurrencyStrategy
 
 	@Override
 	public <T> Callable<T> wrapCallable(Callable<T> callable) {
+		if (callable instanceof HystrixBaggageTraceCallable) {
+			return callable;
+		}
+		return new HystrixBaggageTraceCallable<T>(wrapHystrixTraceCallable(callable));
+	}
+	
+	private <T> Callable<T> wrapHystrixTraceCallable(Callable<T> callable) {
 		if (callable instanceof HystrixTraceCallable) {
 			return callable;
 		}
@@ -105,6 +113,12 @@ public class SleuthHystrixConcurrencyStrategy extends HystrixConcurrencyStrategy
 			return wrappedCallable;
 		}
 		return new HystrixTraceCallable<>(this.tracer, this.traceKeys, wrappedCallable);
+	}
+	
+	static class HystrixBaggageTraceCallable<S> extends BaggageCallable<S> {
+		public HystrixBaggageTraceCallable(Callable<S> delegate) {
+			super(delegate);
+		}
 	}
 
 	// Visible for testing
