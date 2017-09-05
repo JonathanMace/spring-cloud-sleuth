@@ -9,14 +9,16 @@ import org.springframework.util.concurrent.ListenableFuture;
 import org.springframework.util.concurrent.ListenableFutureCallback;
 import org.springframework.util.concurrent.SuccessCallback;
 
-import brown.tracingplane.ActiveBaggage;
+import edu.brown.cs.systems.baggage.Baggage;
 
-public class BaggageListenableFuture<V> implements ListenableFuture<V> {
+
+public class BaggageListenableFuture<V> extends BaggageFuture<V> implements ListenableFuture<V> {
 
 	private final ListenableFuture<V> delegate;
 	private final BaggageCarrier carrier;
 
 	public BaggageListenableFuture(ListenableFuture<V> delegate, BaggageCarrier carrier) {
+		super(delegate, carrier);
 		this.delegate = delegate;
 		this.carrier = carrier;
 	}
@@ -39,14 +41,14 @@ public class BaggageListenableFuture<V> implements ListenableFuture<V> {
 	@Override
 	public V get() throws InterruptedException, ExecutionException {
 		V returnValue = this.delegate.get();
-		ActiveBaggage.join(carrier.getBaggageContext());
+		Baggage.join(carrier.getBaggageContext());
 		return returnValue;
 	}
 
 	@Override
 	public V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
 		V returnValue = this.delegate.get(timeout, unit);
-		ActiveBaggage.join(carrier.getBaggageContext());
+		Baggage.join(carrier.getBaggageContext());
 		return returnValue;
 	}
 
@@ -58,6 +60,10 @@ public class BaggageListenableFuture<V> implements ListenableFuture<V> {
 	@Override
 	public void addCallback(SuccessCallback<? super V> successCallback, FailureCallback failureCallback) {
 		this.delegate.addCallback(new BaggageListenableFutureCallback<>(successCallback, failureCallback, carrier));
+	}
+
+	public static <V> BaggageListenableFuture<V> wrap(ListenableFuture<V> future, BaggageCarrier carrier) {
+		return new BaggageListenableFuture<V>(future, carrier);
 	}
 
 }

@@ -27,8 +27,7 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.cloud.sleuth.Span;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
-import org.springframework.cloud.sleuth.baggage.BaggageExecutor;
-import org.springframework.cloud.sleuth.baggage.BaggageThreadPoolTaskExecutor;
+import org.springframework.cloud.sleuth.baggage.BaggageExecutors;
 import org.springframework.cloud.sleuth.util.SpanNameUtil;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.ReflectionUtils;
@@ -75,8 +74,9 @@ public class TraceAsyncAspect {
 
 	@Around("execution (* org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor.*(..))")
 	public Object traceThreadPoolTaskExecutor(final ProceedingJoinPoint pjp) throws Throwable {
-		BaggageThreadPoolTaskExecutor executor = new BaggageThreadPoolTaskExecutor(
-				new LazyTraceThreadPoolTaskExecutor(this.beanFactory, (ThreadPoolTaskExecutor) pjp.getTarget()));
+//		Executor executor = BaggageExecutors
+//				.wrap(new LazyTraceThreadPoolTaskExecutor(this.beanFactory, (ThreadPoolTaskExecutor) pjp.getTarget()));
+		Executor executor = BaggageExecutors.wrap((ThreadPoolTaskExecutor) pjp.getTarget());
 		Method methodOnTracedBean = getMethod(pjp, executor);
 		if (methodOnTracedBean != null) {
 			return methodOnTracedBean.invoke(executor, pjp.getArgs());
@@ -86,8 +86,8 @@ public class TraceAsyncAspect {
 
 	@Around("execution (* java.util.concurrent.Executor.*(..))")
 	public Object traceExecutor(final ProceedingJoinPoint pjp) throws Throwable {
-		BaggageExecutor executor = new BaggageExecutor(
-				new LazyTraceExecutor(this.beanFactory, (Executor) pjp.getTarget()));
+//		Executor executor = BaggageExecutors.wrap(new LazyTraceExecutor(this.beanFactory, (Executor) pjp.getTarget()));
+		Executor executor = BaggageExecutors.wrap((Executor) pjp.getTarget());
 		Method methodOnTracedBean = getMethod(pjp, executor);
 		if (methodOnTracedBean != null) {
 			return methodOnTracedBean.invoke(executor, pjp.getArgs());

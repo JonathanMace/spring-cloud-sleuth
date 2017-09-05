@@ -31,17 +31,20 @@ import org.springframework.messaging.support.GenericMessage;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 
+import com.google.common.io.BaseEncoding;
+
+import edu.brown.cs.systems.tracingplane.transit_layer.Baggage;
+
 /**
- * A channel interceptor that automatically starts / continues / closes and detaches
- * spans.
+ * A channel interceptor that automatically starts / continues / closes and
+ * detaches spans.
  *
  * @author Dave Syer
  * @since 1.0.0
  */
 public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 
-	public TraceChannelInterceptor(Tracer tracer, TraceKeys traceKeys,
-			SpanExtractor<Message<?>> spanExtractor,
+	public TraceChannelInterceptor(Tracer tracer, TraceKeys traceKeys, SpanExtractor<Message<?>> spanExtractor,
 			SpanInjector<MessageBuilder<?>> spanInjector) {
 		super(tracer, traceKeys, spanExtractor, spanInjector);
 	}
@@ -72,14 +75,13 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 
 	@Override
 	public Message<?> preSend(Message<?> message, MessageChannel channel) {
-		Span parentSpan = getTracer().isTracing() ? getTracer().getCurrentSpan()
-				: buildSpan(message);
+		Span parentSpan = getTracer().isTracing() ? getTracer().getCurrentSpan() : buildSpan(message);
 		String name = getMessageChannelName(channel);
 		Span span = startSpan(parentSpan, name, message);
 		MessageBuilder<?> messageBuilder = MessageBuilder.fromMessage(message);
 		// Backwards compatibility
-		if (message.getHeaders().containsKey(TraceMessageHeaders.OLD_MESSAGE_SENT_FROM_CLIENT) ||
-				message.getHeaders().containsKey(TraceMessageHeaders.MESSAGE_SENT_FROM_CLIENT)) {
+		if (message.getHeaders().containsKey(TraceMessageHeaders.OLD_MESSAGE_SENT_FROM_CLIENT)
+				|| message.getHeaders().containsKey(TraceMessageHeaders.MESSAGE_SENT_FROM_CLIENT)) {
 			span.logEvent(Span.SERVER_RECV);
 		} else {
 			span.logEvent(Span.CLIENT_SEND);
@@ -90,6 +92,10 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 		getSpanInjector().inject(span, messageBuilder);
 		MessageHeaderAccessor headers = MessageHeaderAccessor.getMutableAccessor(message);
 		headers.copyHeaders(messageBuilder.build().getHeaders());
+
+		headers.setHeader(TraceMessageHeaders.BAGGAGE_NAME,
+				BaseEncoding.base64().encode(Baggage.serialize(Baggage.branch())));
+
 		return new GenericMessage<Object>(message.getPayload(), headers.getMessageHeaders());
 	}
 
@@ -98,18 +104,17 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 			return getTracer().createSpan(name, span);
 		}
 		// Backwards compatibility
-		if (Span.SPAN_NOT_SAMPLED.equals(message.getHeaders().get(Span.SAMPLED_NAME)) ||
-				Span.SPAN_NOT_SAMPLED.equals(message.getHeaders().get(TraceMessageHeaders.SAMPLED_NAME))) {
+		if (Span.SPAN_NOT_SAMPLED.equals(message.getHeaders().get(Span.SAMPLED_NAME))
+				|| Span.SPAN_NOT_SAMPLED.equals(message.getHeaders().get(TraceMessageHeaders.SAMPLED_NAME))) {
 			return getTracer().createSpan(name, NeverSampler.INSTANCE);
 		}
 		return getTracer().createSpan(name);
 	}
 
 	@Override
-	public Message<?> beforeHandle(Message<?> message, MessageChannel channel,
-			MessageHandler handler) {
+	public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
 		Span spanFromHeader = getSpanFromHeader(message);
-		if (spanFromHeader!= null) {
+		if (spanFromHeader != null) {
 			spanFromHeader.logEvent(Span.SERVER_RECV);
 		}
 		getTracer().continueSpan(spanFromHeader);
@@ -117,10 +122,9 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 	}
 
 	@Override
-	public void afterMessageHandled(Message<?> message, MessageChannel channel,
-			MessageHandler handler, Exception ex) {
+	public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler, Exception ex) {
 		Span spanFromHeader = getSpanFromHeader(message);
-		if (spanFromHeader!= null) {
+		if (spanFromHeader != null) {
 			spanFromHeader.logEvent(Span.SERVER_SEND);
 			addErrorTag(ex);
 		}

@@ -1,38 +1,50 @@
 package org.springframework.cloud.sleuth.baggage;
 
-import brown.tracingplane.ActiveBaggage;
-import brown.tracingplane.BaggageContext;
+import edu.brown.cs.systems.baggage.Baggage;
+import edu.brown.cs.systems.baggage.DetachedBaggage;
+import edu.brown.cs.systems.xtrace.XTrace;
+import edu.brown.cs.systems.xtrace.logging.XTraceLogger;
 
 public class BaggageRunnable implements Runnable, BaggageCarrier {
 
-	private final Runnable delegate;
-	private final BaggageContext begin;
-	private volatile BaggageContext end;
+	private static final XTraceLogger XTRACE = XTrace.getLogger(BaggageRunnable.class);
 
-	public BaggageRunnable(Runnable delegate) {
+	private final Runnable delegate;
+	private final DetachedBaggage begin;
+	private volatile DetachedBaggage end;
+
+	private BaggageRunnable(Runnable delegate) {
 		this.delegate = delegate;
-		this.begin = ActiveBaggage.branch();
+		this.begin = Baggage.fork();
 	}
 
 	@Override
 	public void run() {
-		BaggageContext precedingContext = ActiveBaggage.take();
-		ActiveBaggage.set(this.begin);
+		DetachedBaggage precedingContext = Baggage.swap(this.begin);
+		XTRACE.log("BaggageRunnable.run");
 		try {
 			this.delegate.run();
 		} finally {
-			this.end = ActiveBaggage.take();
-			ActiveBaggage.set(precedingContext);
+			XTRACE.log("BaggageRunnable.run done");
+			this.end = Baggage.swap(precedingContext);
 		}
 	}
 
 	public void join() {
-		ActiveBaggage.join(end);
+		Baggage.join(end);
 	}
 
 	@Override
-	public BaggageContext getBaggageContext() {
+	public DetachedBaggage getBaggageContext() {
 		return end;
+	}
+
+	public static BaggageRunnable wrap(Runnable runnable) {
+		if (runnable instanceof BaggageRunnable) {
+			return (BaggageRunnable) runnable;
+		} else {
+			return new BaggageRunnable(runnable);
+		}
 	}
 
 }

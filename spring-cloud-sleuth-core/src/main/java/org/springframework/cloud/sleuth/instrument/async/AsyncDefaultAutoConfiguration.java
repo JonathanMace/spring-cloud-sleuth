@@ -26,7 +26,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
-import org.springframework.cloud.sleuth.baggage.BaggageExecutor;
+import org.springframework.cloud.sleuth.baggage.BaggageExecutors;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
@@ -35,8 +35,8 @@ import org.springframework.scheduling.annotation.AsyncConfigurerSupport;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
- * {@link org.springframework.boot.autoconfigure.EnableAutoConfiguration Auto-configuration}
- * enabling async related processing.
+ * {@link org.springframework.boot.autoconfigure.EnableAutoConfiguration
+ * Auto-configuration} enabling async related processing.
  *
  * @author Dave Syer
  * @author Marcin Grzejszczak
@@ -52,18 +52,21 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @AutoConfigureAfter(AsyncCustomAutoConfiguration.class)
 public class AsyncDefaultAutoConfiguration {
 
-	@Autowired private BeanFactory beanFactory;
+	@Autowired
+	private BeanFactory beanFactory;
 
 	@Configuration
 	@ConditionalOnMissingBean(AsyncConfigurer.class)
 	@ConditionalOnProperty(value = "spring.sleuth.async.configurer.enabled", matchIfMissing = true)
 	static class DefaultAsyncConfigurerSupport extends AsyncConfigurerSupport {
 
-		@Autowired private BeanFactory beanFactory;
+		@Autowired
+		private BeanFactory beanFactory;
 
 		@Override
 		public Executor getAsyncExecutor() {
-			return new BaggageExecutor(new LazyTraceExecutor(this.beanFactory, new SimpleAsyncTaskExecutor()));
+			return BaggageExecutors.wrap(new SimpleAsyncTaskExecutor());
+			// return new BaggageExecutor(new LazyTraceExecutor(this.beanFactory, new SimpleAsyncTaskExecutor()));
 		}
 	}
 

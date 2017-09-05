@@ -26,6 +26,10 @@ import org.springframework.cloud.sleuth.Span.SpanBuilder;
 import org.springframework.cloud.sleuth.SpanExtractor;
 import org.springframework.messaging.Message;
 
+import com.google.common.io.BaseEncoding;
+
+import edu.brown.cs.systems.tracingplane.transit_layer.Baggage;
+
 /**
  * Creates a {@link SpanBuilder} from {@link Message}
  *
@@ -44,6 +48,15 @@ class MessagingSpanExtractor implements SpanExtractor<Message<?>> {
 
 	@Override
 	public Span joinTrace(Message<?> carrier) {
+		try {
+			if (hasHeader(carrier, TraceMessageHeaders.BAGGAGE_NAME)) {
+				byte[] baggageBytes = BaseEncoding.base64().decode(getHeader(carrier, TraceMessageHeaders.BAGGAGE_NAME));
+				Baggage.join(Baggage.deserialize(baggageBytes, 0, baggageBytes.length));
+			}
+		} catch (Exception e) {
+			log.error("Exception deserializing baggage", e);
+		}
+		
 		if ((!hasHeader(carrier, Span.TRACE_ID_NAME)
 				|| !hasHeader(carrier, Span.SPAN_ID_NAME))
 				&& (!hasHeader(carrier, TraceMessageHeaders.SPAN_ID_NAME)

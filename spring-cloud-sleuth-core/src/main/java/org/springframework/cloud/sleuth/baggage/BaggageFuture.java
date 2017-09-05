@@ -5,7 +5,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import brown.tracingplane.ActiveBaggage;
+import org.springframework.util.concurrent.ListenableFuture;
+
+import edu.brown.cs.systems.baggage.Baggage;
 
 public class BaggageFuture<V> implements Future<V> {
 	
@@ -35,15 +37,23 @@ public class BaggageFuture<V> implements Future<V> {
 	@Override
 	public V get() throws InterruptedException, ExecutionException {
 		V returnValue = this.delegate.get();
-		ActiveBaggage.join(carrier.getBaggageContext());
+		Baggage.join(carrier.getBaggageContext());
 		return returnValue;
 	}
 
 	@Override
 	public V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
 		V returnValue = this.delegate.get(timeout, unit);
-		ActiveBaggage.join(carrier.getBaggageContext());
+		Baggage.join(carrier.getBaggageContext());
 		return returnValue;
+	}
+	
+	public static <V> BaggageFuture<V> wrap(Future<V> future, BaggageCarrier carrier) {
+		if (future instanceof ListenableFuture) {
+			return BaggageListenableFuture.wrap((ListenableFuture<V>) future, carrier);
+		} else {
+			return new BaggageFuture<V>(future, carrier);
+		}
 	}
 
 }

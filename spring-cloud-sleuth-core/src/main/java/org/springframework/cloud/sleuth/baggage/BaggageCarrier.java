@@ -1,9 +1,9 @@
 package org.springframework.cloud.sleuth.baggage;
 
-import brown.tracingplane.BaggageContext;
+import edu.brown.cs.systems.baggage.DetachedBaggage;
 
 public interface BaggageCarrier {
 	
-	public BaggageContext getBaggageContext();
+	public DetachedBaggage getBaggageContext();
 
 }

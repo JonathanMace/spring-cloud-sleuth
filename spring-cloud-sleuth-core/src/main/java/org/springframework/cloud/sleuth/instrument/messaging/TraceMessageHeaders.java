@@ -25,6 +25,8 @@ package org.springframework.cloud.sleuth.instrument.messaging;
  * @since 1.0.4
  */
 public class TraceMessageHeaders {
+	
+	public static final String BAGGAGE_NAME = "baggage";
 
 	public static final String SPAN_ID_NAME = "spanId";
 	public static final String SAMPLED_NAME = "spanSampled";
