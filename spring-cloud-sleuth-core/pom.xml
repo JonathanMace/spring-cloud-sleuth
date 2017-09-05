@@ -186,7 +186,7 @@
 	
 	<build>
 		<plugins>
-			<plugin>
+			<!-- <plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>aspectj-maven-plugin</artifactId>
 				<version>1.8</version>
@@ -212,7 +212,7 @@
 							<target>1.8</target>
 							<complianceLevel>1.8</complianceLevel>
 							<Xjoinpoints>synchronization</Xjoinpoints>
-							<showWeaveInfo>false</showWeaveInfo>
+							<showWeaveInfo>true</showWeaveInfo>
 							<verbose>false</verbose>
 							<Xlint>unmatchedSuperTypeInCall=ignore,adviceDidNotMatch=ignore,typeNotExposedToWeaver=ignore,uncheckedAdviceConversion=ignore,invalidAbsoluteTypeName=ignore</Xlint>
 	                        <sources/>
@@ -222,7 +222,46 @@
 						</configuration>
 					</execution>
 				</executions>
-			</plugin>
+			</plugin> -->
+			 <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>1.8</version>
+                <executions>
+                    <execution>
+                        <id>compile</id>
+                        <phase>process-classes</phase>
+                        <configuration>
+                            <target>
+                                <property name="compile_classpath"
+                                    refid="maven.compile.classpath" />
+                                    
+                                <exec executable="ajc">
+                                    <arg value="-inpath" />
+                                    <arg
+                                        value="${project.build.directory}/classes" />
+                                    <arg value="-d" />
+                                    <arg
+                                        value="${project.build.directory}/classes" />
+                                    <arg value="-aspectpath" />
+                                    <arg
+                                        value="${edu.brown.cs.systems:xtrace-aspects:jar}" />
+                                    <arg value="-aspectpath" />
+                                    <arg
+                                        value="${edu.brown.cs.systems:retro-aspects:jar}" />
+                                    <arg value="-classpath" />
+                                    <arg value="${compile_classpath}" />
+                                    <arg value="-showWeaveInfo" />
+                                </exec>
+                            </target>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+			
 		</plugins>
 	</build>
 
