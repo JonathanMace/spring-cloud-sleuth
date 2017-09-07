@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.regex.Pattern;
+
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
@@ -35,6 +36,7 @@ import org.springframework.cloud.sleuth.SpanExtractor;
 import org.springframework.cloud.sleuth.SpanReporter;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.BaggageHttpServletResponse;
 import org.springframework.cloud.sleuth.sampler.NeverSampler;
 import org.springframework.cloud.sleuth.util.ExceptionUtils;
 import org.springframework.core.Ordered;
@@ -45,15 +47,20 @@ import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.web.filter.GenericFilterBean;
 import org.springframework.web.util.UrlPathHelper;
 
+import edu.brown.cs.systems.baggage.Baggage;
+import edu.brown.cs.systems.xtrace.XTrace;
+import edu.brown.cs.systems.xtrace.logging.XTraceLogger;
+
 /**
  * Filter that takes the value of the {@link Span#SPAN_ID_NAME} and
- * {@link Span#TRACE_ID_NAME} header from either request or response and uses them to
- * create a new span.
+ * {@link Span#TRACE_ID_NAME} header from either request or response and uses
+ * them to create a new span.
  *
  * <p>
  * In order to keep the size of spans manageable, this only add tags defined in
- * {@link TraceKeys}. If you need to add additional tags, such as headers subtype this and
- * override {@link #addRequestTags} or {@link #addResponseTags}.
+ * {@link TraceKeys}. If you need to add additional tags, such as headers
+ * subtype this and override {@link #addRequestTags} or {@link #addResponseTags}
+ * .
  *
  * @author Jakub Nabrdalik, 4financeIT
  * @author Tomasz Nurkiewicz, 4financeIT
@@ -70,19 +77,17 @@ import org.springframework.web.util.UrlPathHelper;
 public class TraceFilter extends GenericFilterBean {
 
 	private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
+	private static final XTraceLogger xtrace = XTrace.getLogger(TraceHandlerInterceptor.class);
 
 	private static final String HTTP_COMPONENT = "http";
 
 	protected static final int ORDER = Ordered.HIGHEST_PRECEDENCE + 5;
 
-	protected static final String TRACE_REQUEST_ATTR = TraceFilter.class.getName()
-			+ ".TRACE";
+	protected static final String TRACE_REQUEST_ATTR = TraceFilter.class.getName() + ".TRACE";
 
-	protected static final String TRACE_ERROR_HANDLED_REQUEST_ATTR = TraceFilter.class.getName()
-			+ ".ERROR_HANDLED";
+	protected static final String TRACE_ERROR_HANDLED_REQUEST_ATTR = TraceFilter.class.getName() + ".ERROR_HANDLED";
 
-	public static final String DEFAULT_SKIP_PATTERN =
-			"/api-docs.*|/autoconfig|/configprops|/dump|/health|/info|/metrics.*|/mappings|/trace|/swagger.*|.*\\.png|.*\\.css|.*\\.js|.*\\.html|/favicon.ico|/hystrix.stream";
+	public static final String DEFAULT_SKIP_PATTERN = "/api-docs.*|/autoconfig|/configprops|/dump|/health|/info|/metrics.*|/mappings|/trace|/swagger.*|.*\\.png|.*\\.css|.*\\.js|.*\\.html|/favicon.ico|/hystrix.stream";
 
 	private final Tracer tracer;
 	private final TraceKeys traceKeys;
@@ -94,15 +99,13 @@ public class TraceFilter extends GenericFilterBean {
 	private UrlPathHelper urlPathHelper = new UrlPathHelper();
 
 	public TraceFilter(Tracer tracer, TraceKeys traceKeys, SpanReporter spanReporter,
-			SpanExtractor<HttpServletRequest> spanExtractor,
-			HttpTraceKeysInjector httpTraceKeysInjector) {
-		this(tracer, traceKeys, Pattern.compile(DEFAULT_SKIP_PATTERN), spanReporter,
-				spanExtractor, httpTraceKeysInjector);
+			SpanExtractor<HttpServletRequest> spanExtractor, HttpTraceKeysInjector httpTraceKeysInjector) {
+		this(tracer, traceKeys, Pattern.compile(DEFAULT_SKIP_PATTERN), spanReporter, spanExtractor,
+				httpTraceKeysInjector);
 	}
 
-	public TraceFilter(Tracer tracer, TraceKeys traceKeys, Pattern skipPattern,
-			SpanReporter spanReporter, SpanExtractor<HttpServletRequest> spanExtractor,
-			HttpTraceKeysInjector httpTraceKeysInjector) {
+	public TraceFilter(Tracer tracer, TraceKeys traceKeys, Pattern skipPattern, SpanReporter spanReporter,
+			SpanExtractor<HttpServletRequest> spanExtractor, HttpTraceKeysInjector httpTraceKeysInjector) {
 		this.tracer = tracer;
 		this.traceKeys = traceKeys;
 		this.skipPattern = skipPattern;
@@ -112,53 +115,61 @@ public class TraceFilter extends GenericFilterBean {
 	}
 
 	@Override
-	public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse,
-			FilterChain filterChain) throws IOException, ServletException {
+	public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain)
+			throws IOException, ServletException {
 		if (!(servletRequest instanceof HttpServletRequest) || !(servletResponse instanceof HttpServletResponse)) {
 			throw new ServletException("Filter just supports HTTP requests");
 		}
 		HttpServletRequest request = (HttpServletRequest) servletRequest;
 		HttpServletResponse response = (HttpServletResponse) servletResponse;
-		String uri = this.urlPathHelper.getPathWithinApplication(request);
-		boolean skip = this.skipPattern.matcher(uri).matches()
-				|| Span.SPAN_NOT_SAMPLED.equals(ServletUtils.getHeader(request, response, Span.SAMPLED_NAME));
-		Span spanFromRequest = getSpanFromAttribute(request);
-		if (spanFromRequest != null) {
-			continueSpan(request, spanFromRequest);
-		}
-		if (log.isDebugEnabled()) {
-			log.debug("Received a request to uri [" + uri + "] that should not be sampled [" + skip + "]");
-		}
-		// in case of a response with exception status a exception controller will close the span
-		if (!httpStatusSuccessful(response) && isSpanContinued(request)) {
-			processErrorRequest(filterChain, request, response, spanFromRequest);
-			return;
-		}
-		String name = HTTP_COMPONENT + ":" + uri;
-		Throwable exception = null;
+
+		Baggage.join(request.getHeader("Baggage"));
+		xtrace.log("TraceFilter.doFilter begin", "request", request, "response", response);
+
 		try {
-			spanFromRequest = createSpan(request, skip, spanFromRequest, name);
-			filterChain.doFilter(request, response);
-		} catch (Throwable e) {
-			exception = e;
-			this.tracer.addTag(Span.SPAN_ERROR_TAG_NAME, ExceptionUtils.getExceptionMessage(e));
-			throw e;
-		} finally {
-			if (isAsyncStarted(request) || request.isAsyncStarted()) {
-				if (log.isDebugEnabled()) {
-					log.debug("The span " + spanFromRequest + " will get detached by a HandleInterceptor");
-				}
-				// TODO: how to deal with response annotations and async?
+			String uri = this.urlPathHelper.getPathWithinApplication(request);
+			boolean skip = this.skipPattern.matcher(uri).matches()
+					|| Span.SPAN_NOT_SAMPLED.equals(ServletUtils.getHeader(request, response, Span.SAMPLED_NAME));
+			Span spanFromRequest = getSpanFromAttribute(request);
+			if (spanFromRequest != null) {
+				continueSpan(request, spanFromRequest);
+			}
+			if (log.isDebugEnabled()) {
+				log.debug("Received a request to uri [" + uri + "] that should not be sampled [" + skip + "]");
+			}
+			// in case of a response with exception status a exception
+			// controller will close the span
+			if (!httpStatusSuccessful(response) && isSpanContinued(request)) {
+				processErrorRequest(filterChain, request, response, spanFromRequest);
 				return;
 			}
-			spanFromRequest = createSpanIfRequestNotHandled(request, spanFromRequest, name, skip);
-			detachOrCloseSpans(request, response, spanFromRequest, exception);
+			String name = HTTP_COMPONENT + ":" + uri;
+			Throwable exception = null;
+			try {
+				spanFromRequest = createSpan(request, skip, spanFromRequest, name);
+				filterChain.doFilter(request, new BaggageHttpServletResponse(response));
+			} catch (Throwable e) {
+				exception = e;
+				this.tracer.addTag(Span.SPAN_ERROR_TAG_NAME, ExceptionUtils.getExceptionMessage(e));
+				throw e;
+			} finally {
+				if (isAsyncStarted(request) || request.isAsyncStarted()) {
+					if (log.isDebugEnabled()) {
+						log.debug("The span " + spanFromRequest + " will get detached by a HandleInterceptor");
+					}
+					// TODO: how to deal with response annotations and async?
+					return;
+				}
+				spanFromRequest = createSpanIfRequestNotHandled(request, spanFromRequest, name, skip);
+				detachOrCloseSpans(request, response, spanFromRequest, exception);
+			}
+		} finally {
+			xtrace.log("TraceFilter.doFilter end", "request", request, "response", response);
 		}
 	}
 
-	private void processErrorRequest(FilterChain filterChain, HttpServletRequest request,
-			HttpServletResponse response, Span spanFromRequest)
-			throws IOException, ServletException {
+	private void processErrorRequest(FilterChain filterChain, HttpServletRequest request, HttpServletResponse response,
+			Span spanFromRequest) throws IOException, ServletException {
 		if (log.isDebugEnabled()) {
 			log.debug("The span [" + spanFromRequest + "] was already detached once and we're processing an error");
 		}
@@ -179,15 +190,18 @@ public class TraceFilter extends GenericFilterBean {
 		}
 	}
 
-	// This method is a fallback in case if handler interceptors didn't catch the request.
-	// In that case we are creating an artificial span so that it can be visible in Zipkin.
-	private Span createSpanIfRequestNotHandled(HttpServletRequest request,
-			Span spanFromRequest, String name, boolean skip) {
+	// This method is a fallback in case if handler interceptors didn't catch
+	// the request.
+	// In that case we are creating an artificial span so that it can be visible
+	// in Zipkin.
+	private Span createSpanIfRequestNotHandled(HttpServletRequest request, Span spanFromRequest, String name,
+			boolean skip) {
 		if (!requestHasAlreadyBeenHandled(request)) {
 			spanFromRequest = this.tracer.createSpan(name);
 			request.setAttribute(TRACE_REQUEST_ATTR, spanFromRequest);
 			if (log.isDebugEnabled() && !skip) {
-				log.debug("The request with uri [" + request.getRequestURI() + "] hasn't been handled by any of Sleuth's components. "
+				log.debug("The request with uri [" + request.getRequestURI()
+						+ "] hasn't been handled by any of Sleuth's components. "
 						+ "That means that most likely you're using custom HandlerMappings and didn't add Sleuth's TraceHandlerInterceptor. "
 						+ "Sleuth will create a span to ensure that the graph of calls remains valid in Zipkin");
 			}
@@ -199,8 +213,8 @@ public class TraceFilter extends GenericFilterBean {
 		return request.getAttribute(TraceRequestAttributes.HANDLED_SPAN_REQUEST_ATTR) != null;
 	}
 
-	private void detachOrCloseSpans(HttpServletRequest request,
-			HttpServletResponse response, Span spanFromRequest, Throwable exception) {
+	private void detachOrCloseSpans(HttpServletRequest request, HttpServletResponse response, Span spanFromRequest,
+			Throwable exception) {
 		Span span = spanFromRequest;
 		if (span != null) {
 			addResponseTags(response, exception);
@@ -210,7 +224,8 @@ public class TraceFilter extends GenericFilterBean {
 				span = this.tracer.close(span);
 			}
 			recordParentSpan(span);
-			// in case of a response with exception status will close the span when exception dispatch is handled
+			// in case of a response with exception status will close the span
+			// when exception dispatch is handled
 			if (httpStatusSuccessful(response)) {
 				if (log.isDebugEnabled()) {
 					log.debug("Closing the span " + span + " since the response was successful");
@@ -218,8 +233,7 @@ public class TraceFilter extends GenericFilterBean {
 				this.tracer.close(span);
 			} else if (errorAlreadyHandled(request)) {
 				if (log.isDebugEnabled()) {
-					log.debug(
-							"Won't detach the span " + span + " since error has already been handled");
+					log.debug("Won't detach the span " + span + " since error has already been handled");
 				}
 			} else {
 				if (log.isDebugEnabled()) {
@@ -259,8 +273,7 @@ public class TraceFilter extends GenericFilterBean {
 	}
 
 	private boolean errorAlreadyHandled(HttpServletRequest request) {
-		return Boolean.valueOf(
-				String.valueOf(request.getAttribute(TRACE_ERROR_HANDLED_REQUEST_ATTR)));
+		return Boolean.valueOf(String.valueOf(request.getAttribute(TRACE_ERROR_HANDLED_REQUEST_ATTR)));
 	}
 
 	private boolean isSpanContinued(HttpServletRequest request) {
@@ -268,8 +281,8 @@ public class TraceFilter extends GenericFilterBean {
 	}
 
 	/**
-	 * In order not to send unnecessary data we're not adding request tags to the server
-	 * side spans. All the tags are there on the client side.
+	 * In order not to send unnecessary data we're not adding request tags to
+	 * the server side spans. All the tags are there on the client side.
 	 */
 	private void addRequestTagsForParentSpan(HttpServletRequest request, Span spanFromRequest) {
 		if (spanFromRequest.getName().contains("parent")) {
@@ -280,8 +293,7 @@ public class TraceFilter extends GenericFilterBean {
 	/**
 	 * Creates a span and appends it as the current request's attribute
 	 */
-	private Span createSpan(HttpServletRequest request,
-			boolean skip, Span spanFromRequest, String name) {
+	private Span createSpan(HttpServletRequest request, boolean skip, Span spanFromRequest, String name) {
 		if (spanFromRequest != null) {
 			if (log.isDebugEnabled()) {
 				log.debug("Span has already been created - continuing with the previous one");
@@ -306,8 +318,7 @@ public class TraceFilter extends GenericFilterBean {
 		} else {
 			if (skip) {
 				spanFromRequest = this.tracer.createSpan(name, NeverSampler.INSTANCE);
-			}
-			else {
+			} else {
 				spanFromRequest = this.tracer.createSpan(name);
 			}
 			spanFromRequest.logEvent(Span.SERVER_RECV);
@@ -322,8 +333,8 @@ public class TraceFilter extends GenericFilterBean {
 	/** Override to add annotations not defined in {@link TraceKeys}. */
 	protected void addRequestTags(Span span, HttpServletRequest request) {
 		String uri = this.urlPathHelper.getPathWithinApplication(request);
-		this.httpTraceKeysInjector.addRequestTags(span, getFullUrl(request),
-				request.getServerName(), uri, request.getMethod());
+		this.httpTraceKeysInjector.addRequestTags(span, getFullUrl(request), request.getServerName(), uri,
+				request.getMethod());
 		for (String name : this.traceKeys.getHttp().getHeaders()) {
 			Enumeration<String> values = request.getHeaders(name);
 			if (values.hasMoreElements()) {
@@ -340,15 +351,15 @@ public class TraceFilter extends GenericFilterBean {
 	protected void addResponseTags(HttpServletResponse response, Throwable e) {
 		int httpStatus = response.getStatus();
 		if (httpStatus == HttpServletResponse.SC_OK && e != null) {
-			// Filter chain threw exception but the response status may not have been set
+			// Filter chain threw exception but the response status may not have
+			// been set
 			// yet, so we have to guess.
 			this.tracer.addTag(this.traceKeys.getHttp().getStatusCode(),
 					String.valueOf(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
 		}
 		// only tag valid http statuses
 		else if (httpStatus >= 100 && (httpStatus < 200) || (httpStatus > 399)) {
-			this.tracer.addTag(this.traceKeys.getHttp().getStatusCode(),
-					String.valueOf(response.getStatus()));
+			this.tracer.addTag(this.traceKeys.getHttp().getStatusCode(), String.valueOf(response.getStatus()));
 		}
 	}
 

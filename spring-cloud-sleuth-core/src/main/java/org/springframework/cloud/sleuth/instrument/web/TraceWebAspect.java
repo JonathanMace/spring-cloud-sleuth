@@ -26,29 +26,33 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 import org.springframework.cloud.sleuth.SpanNamer;
 import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.BaggageCallable;
 import org.springframework.cloud.sleuth.instrument.async.TraceContinuingCallable;
 import org.springframework.web.context.request.async.WebAsyncTask;
+
+import edu.brown.cs.systems.baggage.Baggage;
 
 /**
  * Aspect that adds tracing to
  * <p/>
  * <ul>
- * <li>{@link org.springframework.web.bind.annotation.RestController} annotated classes
- * with public {@link Callable} methods</li>
- * <li>{@link org.springframework.stereotype.Controller} annotated classes with public
- * {@link Callable} methods</li>
+ * <li>{@link org.springframework.web.bind.annotation.RestController} annotated
+ * classes with public {@link Callable} methods</li>
+ * <li>{@link org.springframework.stereotype.Controller} annotated classes with
+ * public {@link Callable} methods</li>
  * <li>{@link org.springframework.stereotype.Controller} or
- * {@link org.springframework.web.bind.annotation.RestController} annotated classes with
- * public {@link WebAsyncTask} methods</li>
+ * {@link org.springframework.web.bind.annotation.RestController} annotated
+ * classes with public {@link WebAsyncTask} methods</li>
  * </ul>
  * <p/>
- * For controllers an around aspect is created that wraps the {@link Callable#call()}
- * method execution in {@link org.springframework.cloud.sleuth.TraceCallable}
+ * For controllers an around aspect is created that wraps the
+ * {@link Callable#call()} method execution in
+ * {@link org.springframework.cloud.sleuth.TraceCallable}
  * <p/>
  *
- * This aspect will continue a span created by the TraceFilter. It will not create
- * a new span - since the one in TraceFilter will wait until processing has been
- * finished
+ * This aspect will continue a span created by the TraceFilter. It will not
+ * create a new span - since the one in TraceFilter will wait until processing
+ * has been finished
  *
  * @author Tomasz Nurkewicz, 4financeIT
  * @author Michal Chmielarz, 4financeIT
@@ -66,8 +70,7 @@ import org.springframework.web.context.request.async.WebAsyncTask;
 @Aspect
 public class TraceWebAspect {
 
-	private static final Log log = org.apache.commons.logging.LogFactory
-			.getLog(TraceWebAspect.class);
+	private static final Log log = org.apache.commons.logging.LogFactory.getLog(TraceWebAspect.class);
 
 	private final Tracer tracer;
 	private final SpanNamer spanNamer;
@@ -78,22 +81,28 @@ public class TraceWebAspect {
 	}
 
 	@Pointcut("@within(org.springframework.web.bind.annotation.RestController)")
-	private void anyRestControllerAnnotated() { }// NOSONAR
+	private void anyRestControllerAnnotated() {
+	}// NOSONAR
 
 	@Pointcut("@within(org.springframework.stereotype.Controller)")
-	private void anyControllerAnnotated() { } // NOSONAR
+	private void anyControllerAnnotated() {
+	} // NOSONAR
 
 	@Pointcut("execution(public java.util.concurrent.Callable *(..))")
-	private void anyPublicMethodReturningCallable() { } // NOSONAR
+	private void anyPublicMethodReturningCallable() {
+	} // NOSONAR
 
 	@Pointcut("(anyRestControllerAnnotated() || anyControllerAnnotated()) && anyPublicMethodReturningCallable()")
-	private void anyControllerOrRestControllerWithPublicAsyncMethod() { } // NOSONAR
+	private void anyControllerOrRestControllerWithPublicAsyncMethod() {
+	} // NOSONAR
 
 	@Pointcut("execution(public org.springframework.web.context.request.async.WebAsyncTask *(..))")
-	private void anyPublicMethodReturningWebAsyncTask() { } // NOSONAR
+	private void anyPublicMethodReturningWebAsyncTask() {
+	} // NOSONAR
 
 	@Pointcut("(anyRestControllerAnnotated() || anyControllerAnnotated()) && anyPublicMethodReturningWebAsyncTask()")
-	private void anyControllerOrRestControllerWithPublicWebAsyncTaskMethod() { } // NOSONAR
+	private void anyControllerOrRestControllerWithPublicWebAsyncTaskMethod() {
+	} // NOSONAR
 
 	@Around("anyControllerOrRestControllerWithPublicAsyncMethod()")
 	@SuppressWarnings("unchecked")
@@ -103,29 +112,30 @@ public class TraceWebAspect {
 			if (log.isDebugEnabled()) {
 				log.debug("Wrapping callable with span [" + this.tracer.getCurrentSpan() + "]");
 			}
-			return new TraceContinuingCallable<>(this.tracer, this.spanNamer, callable);
-		}
-		else {
-			return callable;
+			return BaggageCallable.wrap(new TraceContinuingCallable<>(this.tracer, this.spanNamer, callable));
+		} else {
+			return BaggageCallable.wrap(callable);
 		}
 	}
 
 	@Around("anyControllerOrRestControllerWithPublicWebAsyncTaskMethod()")
 	public Object wrapWebAsyncTaskWithCorrelationId(ProceedingJoinPoint pjp) throws Throwable {
 		final WebAsyncTask<?> webAsyncTask = (WebAsyncTask<?>) pjp.proceed();
-		if (this.tracer.isTracing()) {
-			try {
+		try {
+			Field callableField = WebAsyncTask.class.getDeclaredField("callable");
+			callableField.setAccessible(true);
+			Callable<?> callable = webAsyncTask.getCallable();
+			if (this.tracer.isTracing()) {
 				if (log.isDebugEnabled()) {
-					log.debug("Wrapping callable with span [" + this.tracer.getCurrentSpan()
-							+ "]");
+					log.debug("Wrapping callable with span [" + this.tracer.getCurrentSpan() + "]");
 				}
-				Field callableField = WebAsyncTask.class.getDeclaredField("callable");
-				callableField.setAccessible(true);
-				callableField.set(webAsyncTask, new TraceContinuingCallable<>(this.tracer,
-						this.spanNamer, webAsyncTask.getCallable()));
-			} catch (NoSuchFieldException ex) {
-				log.warn("Cannot wrap webAsyncTask's callable with TraceCallable", ex);
+				callable = new TraceContinuingCallable<>(this.tracer, this.spanNamer, callable);
 			}
+			callable = BaggageCallable.wrap(callable);
+			callableField.set(webAsyncTask, callable);
+		} catch (NoSuchFieldException ex) {
+			log.warn("Cannot wrap webAsyncTask's callable with TraceCallable", ex);
+			return webAsyncTask;
 		}
 		return webAsyncTask;
 	}

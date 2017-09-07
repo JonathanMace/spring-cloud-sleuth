@@ -34,6 +34,8 @@ import org.springframework.messaging.support.MessageHeaderAccessor;
 import com.google.common.io.BaseEncoding;
 
 import edu.brown.cs.systems.tracingplane.transit_layer.Baggage;
+import edu.brown.cs.systems.xtrace.XTrace;
+import edu.brown.cs.systems.xtrace.logging.XTraceLogger;
 
 /**
  * A channel interceptor that automatically starts / continues / closes and
@@ -44,6 +46,8 @@ import edu.brown.cs.systems.tracingplane.transit_layer.Baggage;
  */
 public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 
+	private static final XTraceLogger XTRACE = XTrace.getLogger(TraceChannelInterceptor.class);
+
 	public TraceChannelInterceptor(Tracer tracer, TraceKeys traceKeys, SpanExtractor<Message<?>> spanExtractor,
 			SpanInjector<MessageBuilder<?>> spanInjector) {
 		super(tracer, traceKeys, spanExtractor, spanInjector);
@@ -51,6 +55,7 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 
 	@Override
 	public void afterSendCompletion(Message<?> message, MessageChannel channel, boolean sent, Exception ex) {
+		XTRACE.log("afterSendCompletion {}", message);
 		Span spanFromHeader = getSpanFromHeader(message);
 		if (containsServerReceived(spanFromHeader)) {
 			spanFromHeader.logEvent(Span.SERVER_SEND);
@@ -75,6 +80,7 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 
 	@Override
 	public Message<?> preSend(Message<?> message, MessageChannel channel) {
+		XTRACE.log("preSend {} (enter)", message);
 		Span parentSpan = getTracer().isTracing() ? getTracer().getCurrentSpan() : buildSpan(message);
 		String name = getMessageChannelName(channel);
 		Span span = startSpan(parentSpan, name, message);
@@ -96,7 +102,17 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 		headers.setHeader(TraceMessageHeaders.BAGGAGE_NAME,
 				BaseEncoding.base64().encode(Baggage.serialize(Baggage.branch())));
 
-		return new GenericMessage<Object>(message.getPayload(), headers.getMessageHeaders());
+		GenericMessage<Object> returnMessage = new GenericMessage<Object>(message.getPayload(),
+				headers.getMessageHeaders());
+		XTRACE.log("preSend {} (return) {}", message, returnMessage);
+		return returnMessage;
+	}
+
+	@Override
+	public void postSend(Message<?> message, MessageChannel channel, boolean sent) {
+		XTRACE.log("postSend (enter) {}", message);
+		super.postSend(message, channel, sent);
+		XTRACE.log("postSend (return) {}", message);
 	}
 
 	private Span startSpan(Span span, String name, Message<?> message) {
@@ -113,22 +129,26 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 
 	@Override
 	public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
+		XTRACE.log("beforeHandle (enter) {}", message);
 		Span spanFromHeader = getSpanFromHeader(message);
 		if (spanFromHeader != null) {
 			spanFromHeader.logEvent(Span.SERVER_RECV);
 		}
 		getTracer().continueSpan(spanFromHeader);
+		XTRACE.log("beforeHandle (return) {}", message);
 		return message;
 	}
 
 	@Override
 	public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler, Exception ex) {
+		XTRACE.log("afterMessageHandled (enter) {}", message);
 		Span spanFromHeader = getSpanFromHeader(message);
 		if (spanFromHeader != null) {
 			spanFromHeader.logEvent(Span.SERVER_SEND);
 			addErrorTag(ex);
 		}
 		getTracer().detach(spanFromHeader);
+		XTRACE.log("afterMessageHandled (return) {}", message);
 	}
 
 	private void addErrorTag(Exception ex) {
@@ -150,6 +170,35 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 			return (Span) object;
 		}
 		return null;
+	}
+
+	public boolean preReceive(MessageChannel channel) {
+		XTRACE.log("preReceive (enter) {}", channel);
+		try {
+			return super.preReceive(channel);
+		} finally {
+			XTRACE.log("preReceive (return) {}", channel);
+		}
+	}
+
+	@Override
+	public Message<?> postReceive(Message<?> message, MessageChannel channel) {
+		XTRACE.log("postReceive (enter) {} {}", message, channel);
+		try {
+			return super.postReceive(message, channel);
+		} finally {
+			XTRACE.log("postReceive (return) {} {}", message, channel);
+		}
+	}
+
+	@Override
+	public void afterReceiveCompletion(Message<?> message, MessageChannel channel, Exception ex) {
+		XTRACE.log("afterReceiveCompletion (enter) {} {}", message, channel);
+		try {
+			super.afterReceiveCompletion(message, channel, ex);
+		} finally {
+			XTRACE.log("afterReceiveCompletion (return) {} {}", message, channel);
+		}
 	}
 
 }

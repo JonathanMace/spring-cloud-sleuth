@@ -20,6 +20,8 @@ import java.net.URI;
 
 import org.springframework.cloud.sleuth.Span;
 import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.BaggageListenableFuture;
+import org.springframework.cloud.sleuth.baggage.BaggageResponseExtractor;
 import org.springframework.core.task.AsyncListenableTaskExecutor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.AsyncClientHttpRequestFactory;
@@ -31,15 +33,20 @@ import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import edu.brown.cs.systems.xtrace.XTrace;
+import edu.brown.cs.systems.xtrace.logging.XTraceLogger;
+
 /**
- * An {@link AsyncRestTemplate} that closes started spans when a response has been
- * successfully received.
+ * An {@link AsyncRestTemplate} that closes started spans when a response has
+ * been successfully received.
  *
  * @author Marcin Grzejszczak
  *
  * @since 1.0.0
  */
 public class TraceAsyncRestTemplate extends AsyncRestTemplate {
+
+	private static final XTraceLogger xtrace = XTrace.getLogger(TraceAsyncRestTemplate.class);
 
 	private final Tracer tracer;
 
@@ -53,8 +60,7 @@ public class TraceAsyncRestTemplate extends AsyncRestTemplate {
 		this.tracer = tracer;
 	}
 
-	public TraceAsyncRestTemplate(AsyncClientHttpRequestFactory asyncRequestFactory,
-			Tracer tracer) {
+	public TraceAsyncRestTemplate(AsyncClientHttpRequestFactory asyncRequestFactory, Tracer tracer) {
 		super(asyncRequestFactory);
 		this.tracer = tracer;
 	}
@@ -65,20 +71,23 @@ public class TraceAsyncRestTemplate extends AsyncRestTemplate {
 		this.tracer = tracer;
 	}
 
-	public TraceAsyncRestTemplate(AsyncClientHttpRequestFactory requestFactory,
-			RestTemplate restTemplate, Tracer tracer) {
+	public TraceAsyncRestTemplate(AsyncClientHttpRequestFactory requestFactory, RestTemplate restTemplate,
+			Tracer tracer) {
 		super(requestFactory, restTemplate);
 		this.tracer = tracer;
 	}
 
 	@Override
-	protected <T> ListenableFuture<T> doExecute(URI url, HttpMethod method,
-			AsyncRequestCallback requestCallback, ResponseExtractor<T> responseExtractor)
-			throws RestClientException {
+	protected <T> ListenableFuture<T> doExecute(URI url, HttpMethod method, AsyncRequestCallback requestCallback,
+			ResponseExtractor<T> responseExtractor) throws RestClientException {
 		try {
-			return super.doExecute(url, method, requestCallback, responseExtractor);
+			xtrace.log("TraceAsyncRestTemplate.doExecute (enter)");
+			BaggageResponseExtractor<T> baggageExtractor = new BaggageResponseExtractor<T>(responseExtractor);
+			return BaggageListenableFuture.wrap(super.doExecute(url, method, requestCallback, baggageExtractor),
+					baggageExtractor);
 		} finally {
 			finish();
+			xtrace.log("TraceAsyncRestTemplate.doExecute (return)");
 		}
 	}
 

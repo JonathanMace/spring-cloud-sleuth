@@ -25,8 +25,8 @@ import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.AsyncConfigurerSupport;
 
 /**
- * {@link AsyncConfigurerSupport} that creates a tracing data passing version
- * of the {@link Executor}
+ * {@link AsyncConfigurerSupport} that creates a tracing data passing version of
+ * the {@link Executor}
  *
  * @author Dave Syer
  * @since 1.0.0
@@ -43,8 +43,7 @@ public class LazyTraceAsyncCustomizer extends AsyncConfigurerSupport {
 
 	@Override
 	public Executor getAsyncExecutor() {
-		return BaggageExecutors.wrap(this.delegate.getAsyncExecutor());
-//		return new BaggageExecutor(new LazyTraceExecutor(this.beanFactory, this.delegate.getAsyncExecutor()));
+		return BaggageExecutors.wrap(TraceExecutors.wrapAsLocalComponent(this.beanFactory, this.delegate.getAsyncExecutor()));
 	}
 
 	@Override

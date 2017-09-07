@@ -17,6 +17,7 @@
 package org.springframework.cloud.sleuth.instrument.web.client;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.springframework.cloud.sleuth.Span;
 import org.springframework.cloud.sleuth.SpanInjector;
@@ -28,9 +29,13 @@ import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 
+import edu.brown.cs.systems.baggage.Baggage;
+import edu.brown.cs.systems.xtrace.XTrace;
+import edu.brown.cs.systems.xtrace.logging.XTraceLogger;
+
 /**
- * Interceptor that verifies whether the trance and span id has been set on the request
- * and sets them if one or both of them are missing.
+ * Interceptor that verifies whether the trance and span id has been set on the
+ * request and sets them if one or both of them are missing.
  *
  * @author Marcin Grzejszczak
  * @author Spencer Gibb
@@ -41,25 +46,43 @@ import org.springframework.http.client.ClientHttpResponse;
 public class TraceRestTemplateInterceptor extends AbstractTraceHttpRequestInterceptor
 		implements ClientHttpRequestInterceptor {
 
+	private static final XTraceLogger xtrace = XTrace.getLogger(TraceRestTemplateInterceptor.class);
+
 	public TraceRestTemplateInterceptor(Tracer tracer, SpanInjector<HttpRequest> spanInjector,
 			HttpTraceKeysInjector httpTraceKeysInjector) {
 		super(tracer, spanInjector, httpTraceKeysInjector);
 	}
 
 	@Override
-	public ClientHttpResponse intercept(HttpRequest request, byte[] body,
-			ClientHttpRequestExecution execution) throws IOException {
+	public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
+			throws IOException {
+		xtrace.log("TraceRestTemplateInterceptor.intercept (enter)");
 		publishStartEvent(request);
-		return response(request, body, execution);
+		try {
+			ClientHttpResponse response = response(request, body, execution);
+			List<String> baggageHeaders = response.getHeaders().get("Baggage");
+			if (baggageHeaders != null) {
+				xtrace.log("Received {} baggage headers in response",  baggageHeaders.size());
+				for (String baggageHeader : baggageHeaders) {
+					Baggage.join(baggageHeader);
+				}
+			} else {
+				xtrace.log("Response baggage headers are null");
+			}
+			return response;
+		} finally {
+			xtrace.log("TraceRestTemplateInterceptor.intercept (return)");
+		}
 	}
 
-	private ClientHttpResponse response(HttpRequest request, byte[] body,
-			ClientHttpRequestExecution execution) throws IOException {
+	private ClientHttpResponse response(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
+			throws IOException {
 		try {
 			return new TraceHttpResponse(this, execution.execute(request, body));
 		} catch (Exception e) {
 			if (log.isDebugEnabled()) {
-				log.debug("Exception occurred while trying to execute the request. Will close the span [" + currentSpan() + "]", e);
+				log.debug("Exception occurred while trying to execute the request. Will close the span ["
+						+ currentSpan() + "]", e);
 			}
 			this.tracer.addTag(Span.SPAN_ERROR_TAG_NAME, ExceptionUtils.getExceptionMessage(e));
 			this.tracer.close(currentSpan());

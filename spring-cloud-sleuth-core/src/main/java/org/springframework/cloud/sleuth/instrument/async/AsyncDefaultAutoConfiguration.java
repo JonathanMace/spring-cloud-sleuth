@@ -27,6 +27,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
 import org.springframework.cloud.sleuth.baggage.BaggageExecutors;
+import org.springframework.cloud.sleuth.instrument.async.TraceExecutors.TraceExecutorBase;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
@@ -42,7 +43,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
  * @author Marcin Grzejszczak
  * @since 1.0.0
  *
- * @see LazyTraceExecutor
+ * @see TraceExecutorBase
  * @see TraceAsyncAspect
  */
 @EnableAsync
@@ -65,8 +66,7 @@ public class AsyncDefaultAutoConfiguration {
 
 		@Override
 		public Executor getAsyncExecutor() {
-			return BaggageExecutors.wrap(new SimpleAsyncTaskExecutor());
-			// return new BaggageExecutor(new LazyTraceExecutor(this.beanFactory, new SimpleAsyncTaskExecutor()));
+			return BaggageExecutors.wrap(TraceExecutors.wrapAsLocalComponent(this.beanFactory, new SimpleAsyncTaskExecutor()));
 		}
 	}
 

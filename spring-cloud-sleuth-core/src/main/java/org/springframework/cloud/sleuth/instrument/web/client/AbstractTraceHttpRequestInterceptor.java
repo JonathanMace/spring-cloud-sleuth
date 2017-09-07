@@ -26,6 +26,9 @@ import org.springframework.cloud.sleuth.SpanInjector;
 import org.springframework.cloud.sleuth.Tracer;
 import org.springframework.cloud.sleuth.instrument.web.HttpTraceKeysInjector;
 import org.springframework.http.HttpRequest;
+
+import edu.brown.cs.systems.baggage.Baggage;
+import edu.brown.cs.systems.baggage.DetachedBaggage;
 /**
  * Abstraction over classes that interact with Http requests. Allows you
  * to enrich the request headers with trace related information.
@@ -62,6 +65,20 @@ abstract class AbstractTraceHttpRequestInterceptor {
 		if (log.isDebugEnabled()) {
 			log.debug("Starting new client span [" + newSpan + "]");
 		}
+		addBaggageHeaders(request);
+	}
+
+
+	private static void addBaggageHeaders(HttpRequest request) {
+		DetachedBaggage forked = Baggage.fork();
+		if (forked == null) {
+			return;
+		}
+		String baggageString = forked.toStringBase64();
+		if (baggageString == null) {
+			return;
+		}
+		request.getHeaders().set("Baggage", baggageString);
 	}
 
 	private String uriScheme(URI uri) {

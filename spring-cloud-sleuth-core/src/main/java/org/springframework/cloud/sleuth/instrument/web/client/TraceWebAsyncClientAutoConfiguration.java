@@ -24,6 +24,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cloud.sleuth.SpanInjector;
 import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.BaggageExecutors;
+import org.springframework.cloud.sleuth.instrument.async.TraceExecutors;
 import org.springframework.cloud.sleuth.instrument.web.HttpTraceKeysInjector;
 import org.springframework.cloud.sleuth.instrument.web.TraceWebAutoConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -37,9 +39,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.client.AsyncRestTemplate;
 
 /**
- * {@link org.springframework.boot.autoconfigure.EnableAutoConfiguration Auto-configuration}
- * enables span information propagation for {@link AsyncClientHttpRequestFactory} and
- * {@link AsyncRestTemplate}
+ * {@link org.springframework.boot.autoconfigure.EnableAutoConfiguration
+ * Auto-configuration} enables span information propagation for
+ * {@link AsyncClientHttpRequestFactory} and {@link AsyncRestTemplate}
  *
  * @author Marcin Grzejszczak
  * @since 1.0.0
@@ -52,11 +54,16 @@ import org.springframework.web.client.AsyncRestTemplate;
 @AutoConfigureAfter(TraceWebAutoConfiguration.class)
 public class TraceWebAsyncClientAutoConfiguration {
 
-	@Autowired Tracer tracer;
-	@Autowired private HttpTraceKeysInjector httpTraceKeysInjector;
-	@Autowired private SpanInjector<HttpRequest> spanInjector;
-	@Autowired(required = false) private ClientHttpRequestFactory clientHttpRequestFactory;
-	@Autowired(required = false) private AsyncClientHttpRequestFactory asyncClientHttpRequestFactory;
+	@Autowired
+	Tracer tracer;
+	@Autowired
+	private HttpTraceKeysInjector httpTraceKeysInjector;
+	@Autowired
+	private SpanInjector<HttpRequest> spanInjector;
+	@Autowired(required = false)
+	private ClientHttpRequestFactory clientHttpRequestFactory;
+	@Autowired(required = false)
+	private AsyncClientHttpRequestFactory asyncClientHttpRequestFactory;
 
 	private TraceAsyncClientHttpRequestFactoryWrapper traceAsyncClientHttpRequestFactory() {
 		ClientHttpRequestFactory clientFactory = this.clientHttpRequestFactory;
@@ -65,11 +72,11 @@ public class TraceWebAsyncClientAutoConfiguration {
 			clientFactory = defaultClientHttpRequestFactory(this.tracer);
 		}
 		if (asyncClientFactory == null) {
-			asyncClientFactory = clientFactory instanceof AsyncClientHttpRequestFactory ?
-					(AsyncClientHttpRequestFactory) clientFactory : defaultClientHttpRequestFactory(this.tracer);
+			asyncClientFactory = clientFactory instanceof AsyncClientHttpRequestFactory
+					? (AsyncClientHttpRequestFactory) clientFactory : defaultClientHttpRequestFactory(this.tracer);
 		}
-		return new TraceAsyncClientHttpRequestFactoryWrapper(this.tracer, this.spanInjector,
-				asyncClientFactory, clientFactory, this.httpTraceKeysInjector);
+		return new TraceAsyncClientHttpRequestFactoryWrapper(this.tracer, this.spanInjector, asyncClientFactory,
+				clientFactory, this.httpTraceKeysInjector);
 	}
 
 	private SimpleClientHttpRequestFactory defaultClientHttpRequestFactory(Tracer tracer) {
@@ -81,7 +88,8 @@ public class TraceWebAsyncClientAutoConfiguration {
 	private AsyncListenableTaskExecutor asyncListenableTaskExecutor(Tracer tracer) {
 		ThreadPoolTaskScheduler threadPoolTaskScheduler = new ThreadPoolTaskScheduler();
 		threadPoolTaskScheduler.initialize();
-		return new TraceAsyncListenableTaskExecutor(threadPoolTaskScheduler, tracer);
+		return (AsyncListenableTaskExecutor) BaggageExecutors
+				.wrap(TraceExecutors.wrapWithTracer(tracer, threadPoolTaskScheduler));
 	}
 
 	@Bean

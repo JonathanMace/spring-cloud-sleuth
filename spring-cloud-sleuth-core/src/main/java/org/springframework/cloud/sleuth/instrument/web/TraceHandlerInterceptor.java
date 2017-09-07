@@ -17,6 +17,7 @@
 package org.springframework.cloud.sleuth.instrument.web;
 
 import java.lang.invoke.MethodHandles;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -30,17 +31,25 @@ import org.springframework.cloud.sleuth.Tracer;
 import org.springframework.cloud.sleuth.util.ExceptionUtils;
 import org.springframework.cloud.sleuth.util.SpanNameUtil;
 import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
 
+import edu.brown.cs.systems.baggage.Baggage;
+import edu.brown.cs.systems.baggage.DetachedBaggage;
+import edu.brown.cs.systems.xtrace.XTrace;
+import edu.brown.cs.systems.xtrace.logging.XTraceLogger;
+
 /**
- * {@link org.springframework.web.servlet.HandlerInterceptor} that wraps handling of a
- * request in a Span. Adds tags related to the class and method name.
+ * {@link org.springframework.web.servlet.HandlerInterceptor} that wraps
+ * handling of a request in a Span. Adds tags related to the class and method
+ * name.
  *
  * The interceptor will not create spans for error controller related paths.
  *
- * It's important to note that this implementation will set the request attribute
- * {@link TraceRequestAttributes#HANDLED_SPAN_REQUEST_ATTR} when the request is processed.
- * That way the {@link TraceFilter} will not create the "fallback" span.
+ * It's important to note that this implementation will set the request
+ * attribute {@link TraceRequestAttributes#HANDLED_SPAN_REQUEST_ATTR} when the
+ * request is processed. That way the {@link TraceFilter} will not create the
+ * "fallback" span.
  *
  * @author Marcin Grzejszczak
  * @since 1.0.3
@@ -48,6 +57,7 @@ import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
 public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 
 	private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
+	private static final XTraceLogger xtrace = XTrace.getLogger(TraceHandlerInterceptor.class);
 
 	private final BeanFactory beanFactory;
 
@@ -60,8 +70,12 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 	}
 
 	@Override
-	public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
-			Object handler) throws Exception {
+	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+			throws Exception {
+
+		Baggage.join(request.getHeader("Baggage"));
+		xtrace.log("TraceHandlerInterceptor.preHandle", "request", request, "response", response, "handler", handler);
+
 		if (isErrorControllerRelated(request)) {
 			if (log.isDebugEnabled()) {
 				log.debug("Skipping creation of a span for error controller processing");
@@ -82,12 +96,34 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 		addClassMethodTag(handler, span);
 		addClassNameTag(handler, span);
 		setSpanInAttribute(request, span);
+
+		DetachedBaggage forked = Baggage.fork();
+		if (forked != null) {
+			String baggageString = forked.toStringBase64();
+			if (baggageString != null) {
+				response.addHeader("Baggage", baggageString);
+			}
+		}
+		
 		return true;
 	}
 
+	@Override
+	public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler,
+			ModelAndView modelAndView) throws Exception {
+		xtrace.log("TraceHandlerInterceptor.postHandle", "request", request, "response", response, "handler", handler);
+
+		DetachedBaggage forked = Baggage.fork();
+		if (forked != null) {
+			String baggageString = forked.toStringBase64();
+			if (baggageString != null) {
+				response.addHeader("Baggage", baggageString);
+			}
+		}
+	}
+
 	private boolean isErrorControllerRelated(HttpServletRequest request) {
-		return getErrorController() != null && getErrorController().getErrorPath()
-				.equals(request.getRequestURI());
+		return getErrorController() != null && getErrorController().getErrorPath().equals(request.getRequestURI());
 	}
 
 	private void addClassMethodTag(Object handler, Span span) {
@@ -121,20 +157,31 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 	}
 
 	@Override
-	public void afterConcurrentHandlingStarted(HttpServletRequest request,
-			HttpServletResponse response, Object handler) throws Exception {
+	public void afterConcurrentHandlingStarted(HttpServletRequest request, HttpServletResponse response, Object handler)
+			throws Exception {
+
+		Baggage.join(request.getHeader("Baggage"));
+		xtrace.log("TraceHandlerInterceptor.afterConcurrentHandlingStarted", "request", request, "response", response,
+				"handler", handler);
+
 		Span spanFromRequest = getSpanFromAttribute(request);
 		Span rootSpanFromRequest = getRootSpanFromAttribute(request);
 		if (log.isDebugEnabled()) {
-			log.debug("Closing the span " + spanFromRequest + " and detaching its parent " + rootSpanFromRequest + " since the request is asynchronous");
+			log.debug("Closing the span " + spanFromRequest + " and detaching its parent " + rootSpanFromRequest
+					+ " since the request is asynchronous");
 		}
 		getTracer().close(spanFromRequest);
 		getTracer().detach(rootSpanFromRequest);
 	}
 
 	@Override
-	public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
-			Object handler, Exception ex) throws Exception {
+	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex)
+			throws Exception {
+
+		Baggage.join(request.getHeader("Baggage"));
+		xtrace.log("TraceHandlerInterceptor.afterCompletion", "request", request, "response", response, "handler",
+				handler);
+
 		if (isErrorControllerRelated(request)) {
 			if (log.isDebugEnabled()) {
 				log.debug("Skipping closing of a span for error controller processing");
