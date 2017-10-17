@@ -123,7 +123,7 @@ public class TraceFilter extends GenericFilterBean {
 		HttpServletRequest request = (HttpServletRequest) servletRequest;
 		HttpServletResponse response = (HttpServletResponse) servletResponse;
 
-		Baggage.join(request.getHeader("Baggage"));
+		Baggage.start(request.getHeader("Baggage"));
 		xtrace.log("TraceFilter.doFilter begin", "request", request, "response", response);
 
 		try {
@@ -165,6 +165,7 @@ public class TraceFilter extends GenericFilterBean {
 			}
 		} finally {
 			xtrace.log("TraceFilter.doFilter end", "request", request, "response", response);
+			Baggage.stop();
 		}
 	}
 
