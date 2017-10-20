@@ -73,8 +73,7 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
 			throws Exception {
 
-		Baggage.join(request.getHeader("Baggage"));
-		xtrace.log("TraceHandlerInterceptor.preHandle", "request", request, "response", response, "handler", handler);
+//		Baggage.join(request.getHeader("Baggage"));
 
 		if (isErrorControllerRelated(request)) {
 			if (log.isDebugEnabled()) {
@@ -89,6 +88,7 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 			return true;
 		}
 		String spanName = spanName(handler);
+		xtrace.log("TraceHandlerInterceptor.preHandle: " + spanName, "request", request, "response", response, "handler", handler);
 		Span span = getTracer().createSpan(spanName);
 		if (log.isDebugEnabled()) {
 			log.debug("Created new span " + span + " with name [" + spanName + "]");
@@ -97,13 +97,13 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 		addClassNameTag(handler, span);
 		setSpanInAttribute(request, span);
 
-		DetachedBaggage forked = Baggage.fork();
-		if (forked != null) {
-			String baggageString = forked.toStringBase64();
-			if (baggageString != null) {
-				response.addHeader("Baggage", baggageString);
-			}
-		}
+//		DetachedBaggage forked = Baggage.fork();
+//		if (forked != null) {
+//			String baggageString = forked.toStringBase64();
+//			if (baggageString != null) {
+//				response.addHeader("Baggage", baggageString);
+//			}
+//		}
 		
 		return true;
 	}
@@ -111,7 +111,8 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 	@Override
 	public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler,
 			ModelAndView modelAndView) throws Exception {
-		xtrace.log("TraceHandlerInterceptor.postHandle", "request", request, "response", response, "handler", handler);
+		String spanName = spanName(handler);
+		xtrace.log("TraceHandlerInterceptor.postHandle: " + spanName, "request", request, "response", response, "handler", handler);
 
 		DetachedBaggage forked = Baggage.fork();
 		if (forked != null) {
@@ -178,7 +179,7 @@ public class TraceHandlerInterceptor extends HandlerInterceptorAdapter {
 	public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex)
 			throws Exception {
 
-		Baggage.join(request.getHeader("Baggage"));
+//		Baggage.join(request.getHeader("Baggage"));
 		xtrace.log("TraceHandlerInterceptor.afterCompletion", "request", request, "response", response, "handler",
 				handler);
 
