@@ -24,6 +24,7 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.cloud.sleuth.Span;
 import org.springframework.cloud.sleuth.Span.SpanBuilder;
 import org.springframework.cloud.sleuth.SpanExtractor;
+import org.springframework.cloud.sleuth.baggage.ZipkinBaggage;
 import org.springframework.messaging.Message;
 
 import com.google.common.io.BaseEncoding;
@@ -57,60 +58,60 @@ class MessagingSpanExtractor implements SpanExtractor<Message<?>> {
 			log.error("Exception deserializing baggage", e);
 		}
 		
-		if ((!hasHeader(carrier, Span.TRACE_ID_NAME)
-				|| !hasHeader(carrier, Span.SPAN_ID_NAME))
-				&& (!hasHeader(carrier, TraceMessageHeaders.SPAN_ID_NAME)
-				|| !hasHeader(carrier, TraceMessageHeaders.TRACE_ID_NAME))) {
-			return null;
-			// TODO: Consider throwing IllegalArgumentException;
-		}
-		if (hasHeader(carrier, Span.TRACE_ID_NAME)
-				|| hasHeader(carrier, Span.SPAN_ID_NAME)) {
-			log.warn("Deprecated trace headers detected. Please upgrade Sleuth to 1.1 "
-					+ "or start sending headers present in the TraceMessageHeaders class");
-			return extractSpanFromOldHeaders(carrier, Span.builder());
-		}
-		return extractSpanFromNewHeaders(carrier, Span.builder());
+//		if ((!hasHeader(carrier, Span.TRACE_ID_NAME)
+//				|| !hasHeader(carrier, Span.SPAN_ID_NAME))
+//				&& (!hasHeader(carrier, TraceMessageHeaders.SPAN_ID_NAME)
+//				|| !hasHeader(carrier, TraceMessageHeaders.TRACE_ID_NAME))) {
+//			return null;
+//			// TODO: Consider throwing IllegalArgumentException;
+//		}
+//		if (hasHeader(carrier, Span.TRACE_ID_NAME)
+//				|| hasHeader(carrier, Span.SPAN_ID_NAME)) {
+//			log.warn("Deprecated trace headers detected. Please upgrade Sleuth to 1.1 "
+//					+ "or start sending headers present in the TraceMessageHeaders class");
+//			return extractSpanFromOldHeaders(carrier, Span.builder());
+//		}
+		return extractSpanFromBaggage(ZipkinBaggage.get());
 	}
 
-	// Backwards compatibility
-	private Span extractSpanFromOldHeaders(Message<?> carrier, SpanBuilder spanBuilder) {
-		return extractSpanFromHeaders(carrier, spanBuilder, Span.TRACE_ID_NAME, Span.SPAN_ID_NAME,
-				Span.SAMPLED_NAME, Span.PROCESS_ID_NAME, Span.SPAN_NAME_NAME, Span.PARENT_ID_NAME);
-	}
-
-	private Span extractSpanFromNewHeaders(Message<?> carrier, SpanBuilder spanBuilder) {
-		return extractSpanFromHeaders(carrier, spanBuilder, TraceMessageHeaders.TRACE_ID_NAME,
-				TraceMessageHeaders.SPAN_ID_NAME, TraceMessageHeaders.SAMPLED_NAME,
-				TraceMessageHeaders.PROCESS_ID_NAME, TraceMessageHeaders.SPAN_NAME_NAME,
-				TraceMessageHeaders.PARENT_ID_NAME);
-	}
-
-	private Span extractSpanFromHeaders(Message<?> carrier, SpanBuilder spanBuilder,
-			String traceIdHeader, String spanIdHeader, String spanSampledHeader,
-			String spanProcessIdHeader, String spanNameHeader, String spanParentIdHeader) {
-		String traceId = getHeader(carrier, traceIdHeader);
-		spanBuilder.traceIdHigh(traceId.length() == 32 ? Span.hexToId(traceId, 0) : 0);
-		spanBuilder.traceId(Span.hexToId(traceId));
-
-		long spanId = hasHeader(carrier, spanIdHeader)
-				? Span.hexToId(getHeader(carrier, spanIdHeader))
-				: this.random.nextLong();
-		spanBuilder = spanBuilder.spanId(spanId);
-		spanBuilder.exportable(
-				Span.SPAN_SAMPLED.equals(getHeader(carrier, spanSampledHeader)));
-		String processId = getHeader(carrier, spanProcessIdHeader);
-		String spanName = getHeader(carrier, spanNameHeader);
-		if (spanName != null) {
-			spanBuilder.name(spanName);
-		}
-		if (processId != null) {
-			spanBuilder.processId(processId);
-		}
-		setParentIdIfApplicable(carrier, spanBuilder, spanParentIdHeader);
-		spanBuilder.remote(true);
-		return spanBuilder.build();
-	}
+//	// Backwards compatibility
+//	private Span extractSpanFromOldHeaders(Message<?> carrier, SpanBuilder spanBuilder) {
+//		return extractSpanFromHeaders(carrier, spanBuilder, Span.TRACE_ID_NAME, Span.SPAN_ID_NAME,
+//				Span.SAMPLED_NAME, Span.PROCESS_ID_NAME, Span.SPAN_NAME_NAME, Span.PARENT_ID_NAME);
+//	}
+//
+//	private Span extractSpanFromNewHeaders(Message<?> carrier, SpanBuilder spanBuilder) {
+//		return extractSpanFromHeaders(carrier, spanBuilder, TraceMessageHeaders.TRACE_ID_NAME,
+//				TraceMessageHeaders.SPAN_ID_NAME, TraceMessageHeaders.SAMPLED_NAME,
+//				TraceMessageHeaders.PROCESS_ID_NAME, TraceMessageHeaders.SPAN_NAME_NAME,
+//				TraceMessageHeaders.PARENT_ID_NAME);
+//	}
+//
+//	private Span extractSpanFromHeaders(Message<?> carrier, SpanBuilder spanBuilder,
+//			String traceIdHeader, String spanIdHeader, String spanSampledHeader,
+//			String spanProcessIdHeader, String spanNameHeader, String spanParentIdHeader) {
+//		String traceId = getHeader(carrier, traceIdHeader);
+//		spanBuilder.traceIdHigh(traceId.length() == 32 ? Span.hexToId(traceId, 0) : 0);
+//		spanBuilder.traceId(Span.hexToId(traceId));
+//
+//		long spanId = hasHeader(carrier, spanIdHeader)
+//				? Span.hexToId(getHeader(carrier, spanIdHeader))
+//				: this.random.nextLong();
+//		spanBuilder = spanBuilder.spanId(spanId);
+//		spanBuilder.exportable(
+//				Span.SPAN_SAMPLED.equals(getHeader(carrier, spanSampledHeader)));
+//		String processId = getHeader(carrier, spanProcessIdHeader);
+//		String spanName = getHeader(carrier, spanNameHeader);
+//		if (spanName != null) {
+//			spanBuilder.name(spanName);
+//		}
+//		if (processId != null) {
+//			spanBuilder.processId(processId);
+//		}
+//		setParentIdIfApplicable(carrier, spanBuilder, spanParentIdHeader);
+//		spanBuilder.remote(true);
+//		return spanBuilder.build();
+//	}
 
 	String getHeader(Message<?> message, String name) {
 		return getHeader(message, name, String.class);
@@ -123,12 +124,30 @@ class MessagingSpanExtractor implements SpanExtractor<Message<?>> {
 	boolean hasHeader(Message<?> message, String name) {
 		return message.getHeaders().containsKey(name);
 	}
-
-	private void setParentIdIfApplicable(Message<?> carrier, SpanBuilder spanBuilder,
-			String spanParentIdHeader) {
-		String parentId = getHeader(carrier, spanParentIdHeader);
-		if (parentId != null) {
-			spanBuilder.parent(Span.hexToId(parentId));
+	
+	private Span extractSpanFromBaggage(ZipkinBaggage zb) {
+		if (zb.traceID == null) {
+			return null;
 		}
+		
+		SpanBuilder spanBuilder = Span.builder();
+		
+		spanBuilder.traceId(zb.traceID);
+		spanBuilder.spanId(zb.spanID == null ? random.nextLong() : zb.spanID);
+		spanBuilder.exportable(zb.sampled != null && zb.sampled);
+		// Baggage TODO: add process id and span name name to baggage
+		if (zb.parentSpanID != null) {
+			spanBuilder.parent(zb.parentSpanID);
+		}
+		spanBuilder.remote(true);
+		return spanBuilder.build();
 	}
+
+//	private void setParentIdIfApplicable(Message<?> carrier, SpanBuilder spanBuilder,
+//			String spanParentIdHeader) {
+//		String parentId = getHeader(carrier, spanParentIdHeader);
+//		if (parentId != null) {
+//			spanBuilder.parent(Span.hexToId(parentId));
+//		}
+//	}
 }

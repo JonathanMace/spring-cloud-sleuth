@@ -1,0 +1,8 @@
+package org.springframework.cloud.sleuth.baggage;
+
+bag ZipkinBaggage {
+	sfixed64 traceID = 0;
+	sfixed64 spanID = 1;
+	sfixed64 parentSpanID = 2;
+	taint     sampled = 3;
+}

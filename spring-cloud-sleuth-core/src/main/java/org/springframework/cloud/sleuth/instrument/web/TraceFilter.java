@@ -37,6 +37,7 @@ import org.springframework.cloud.sleuth.SpanReporter;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
 import org.springframework.cloud.sleuth.baggage.BaggageHttpServletResponse;
+import org.springframework.cloud.sleuth.baggage.ZipkinBaggage;
 import org.springframework.cloud.sleuth.sampler.NeverSampler;
 import org.springframework.cloud.sleuth.util.ExceptionUtils;
 import org.springframework.core.Ordered;
@@ -128,8 +129,8 @@ public class TraceFilter extends GenericFilterBean {
 
 		try {
 			String uri = this.urlPathHelper.getPathWithinApplication(request);
-			boolean skip = this.skipPattern.matcher(uri).matches()
-					|| Span.SPAN_NOT_SAMPLED.equals(ServletUtils.getHeader(request, response, Span.SAMPLED_NAME));
+			ZipkinBaggage zb = ZipkinBaggage.get();
+			boolean skip = zb != null && zb.sampled != null && zb.sampled == false;
 			Span spanFromRequest = getSpanFromAttribute(request);
 			if (spanFromRequest != null) {
 				continueSpan(request, spanFromRequest);
@@ -301,7 +302,7 @@ public class TraceFilter extends GenericFilterBean {
 			}
 			return spanFromRequest;
 		}
-		Span parent = this.spanExtractor.joinTrace(request);
+		Span parent = this.spanExtractor.joinTrace(request);		
 		if (parent != null) {
 			if (log.isDebugEnabled()) {
 				log.debug("Found a parent span " + parent + " in the request");

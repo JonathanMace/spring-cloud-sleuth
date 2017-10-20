@@ -22,6 +22,7 @@ import org.springframework.cloud.sleuth.SpanExtractor;
 import org.springframework.cloud.sleuth.SpanInjector;
 import org.springframework.cloud.sleuth.TraceKeys;
 import org.springframework.cloud.sleuth.Tracer;
+import org.springframework.cloud.sleuth.baggage.ZipkinBaggage;
 import org.springframework.cloud.sleuth.sampler.NeverSampler;
 import org.springframework.cloud.sleuth.util.ExceptionUtils;
 import org.springframework.messaging.Message;
@@ -120,8 +121,8 @@ public class TraceChannelInterceptor extends AbstractTraceChannelInterceptor {
 			return getTracer().createSpan(name, span);
 		}
 		// Backwards compatibility
-		if (Span.SPAN_NOT_SAMPLED.equals(message.getHeaders().get(Span.SAMPLED_NAME))
-				|| Span.SPAN_NOT_SAMPLED.equals(message.getHeaders().get(TraceMessageHeaders.SAMPLED_NAME))) {
+		ZipkinBaggage zb = ZipkinBaggage.get();
+		if (zb != null && zb.sampled != null && zb.sampled == false) {
 			return getTracer().createSpan(name, NeverSampler.INSTANCE);
 		}
 		return getTracer().createSpan(name);
